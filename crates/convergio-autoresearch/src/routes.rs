@@ -12,6 +12,7 @@ use axum::response::Json;
 use axum::routing::{get, post};
 use axum::Router;
 use convergio_db::pool::ConnPool;
+use rusqlite;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -35,7 +36,10 @@ pub fn autoresearch_routes(state: Arc<AutoresearchState>) -> Router {
 async fn handle_results(State(s): State<Arc<AutoresearchState>>) -> Json<Value> {
     let conn = match s.pool.get() {
         Ok(c) => c,
-        Err(e) => return Json(json!({"error": e.to_string()})),
+        Err(e) => {
+            tracing::warn!(error = %e, "pool error in results handler");
+            return Json(json!({"error": "internal error"}));
+        }
     };
     let total: i64 = conn
         .query_row("SELECT COUNT(*) FROM autoresearch_experiments", [], |r| {
@@ -85,22 +89,26 @@ async fn handle_experiments(
 ) -> Json<Value> {
     let conn = match s.pool.get() {
         Ok(c) => c,
-        Err(e) => return Json(json!({"error": e.to_string()})),
+        Err(e) => {
+            tracing::warn!(error = %e, "pool error in experiments handler");
+            return Json(json!({"error": "internal error"}));
+        }
     };
     let limit = q.limit.unwrap_or(20).min(100);
-    let offset = q.offset.unwrap_or(0);
-    let sql = format!(
-        "SELECT id, target_file, description, status, outcome, \
+    let offset = q.offset.unwrap_or(0).min(10_000);
+    let sql = "SELECT id, target_file, description, status, outcome, \
          baseline_test_secs, experiment_test_secs, model_used, \
          created_at, completed_at \
-         FROM autoresearch_experiments ORDER BY id DESC LIMIT {limit} OFFSET {offset}"
-    );
-    let mut stmt = match conn.prepare(&sql) {
+         FROM autoresearch_experiments ORDER BY id DESC LIMIT ?1 OFFSET ?2";
+    let mut stmt = match conn.prepare(sql) {
         Ok(s) => s,
-        Err(e) => return Json(json!({"error": e.to_string()})),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to prepare experiments query");
+            return Json(json!({"error": "internal error"}));
+        }
     };
     let rows: Vec<Value> = stmt
-        .query_map([], |r| {
+        .query_map(rusqlite::params![limit, offset], |r| {
             Ok(json!({
                 "id": r.get::<_, i64>(0)?,
                 "target_file": r.get::<_, String>(1)?,
@@ -122,7 +130,10 @@ async fn handle_experiments(
 async fn handle_metrics(State(s): State<Arc<AutoresearchState>>) -> Json<Value> {
     let conn = match s.pool.get() {
         Ok(c) => c,
-        Err(e) => return Json(json!({"error": e.to_string()})),
+        Err(e) => {
+            tracing::warn!(error = %e, "pool error in metrics handler");
+            return Json(json!({"error": "internal error"}));
+        }
     };
     let mut stmt = match conn.prepare(
         "SELECT test_count, test_duration_secs, binary_size_bytes, \
@@ -130,7 +141,10 @@ async fn handle_metrics(State(s): State<Arc<AutoresearchState>>) -> Json<Value> 
          FROM autoresearch_metrics ORDER BY id DESC LIMIT 30",
     ) {
         Ok(s) => s,
-        Err(e) => return Json(json!({"error": e.to_string()})),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to prepare metrics query");
+            return Json(json!({"error": "internal error"}));
+        }
     };
     let rows: Vec<Value> = stmt
         .query_map([], |r| {

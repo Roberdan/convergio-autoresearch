@@ -99,16 +99,16 @@ mod types_tests {
 }
 
 mod runner_tests {
+    use crate::runner::{safe_truncate, validate_daemon_url};
+
     #[test]
     fn create_experiment_with_valid_pool() {
         let pool = convergio_db::pool::create_memory_pool().unwrap();
         let conn = pool.get().unwrap();
-        // Apply migrations first
         let ext = crate::ext::AutoresearchExtension::new(pool.clone());
         for mig in convergio_types::extension::Extension::migrations(&ext) {
             conn.execute_batch(mig.up).unwrap();
         }
-        // Insert a test experiment
         conn.execute(
             "INSERT INTO autoresearch_experiments \
              (target_file, description, status, outcome, model_used, proposal) \
@@ -122,6 +122,39 @@ mod runner_tests {
             })
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn validate_daemon_url_allows_localhost() {
+        assert!(validate_daemon_url("http://localhost:8420").is_ok());
+        assert!(validate_daemon_url("http://127.0.0.1:8420").is_ok());
+        assert!(validate_daemon_url("https://localhost:8420").is_ok());
+    }
+
+    #[test]
+    fn validate_daemon_url_rejects_external() {
+        assert!(validate_daemon_url("http://evil.com:8420").is_err());
+        assert!(validate_daemon_url("http://192.168.1.1:8420").is_err());
+        assert!(validate_daemon_url("ftp://localhost:8420").is_err());
+        assert!(validate_daemon_url("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn safe_truncate_ascii() {
+        assert_eq!(safe_truncate("hello world", 5), "hello");
+        assert_eq!(safe_truncate("short", 100), "short");
+    }
+
+    #[test]
+    fn safe_truncate_multibyte() {
+        // "café" is 5 bytes (é = 2 bytes)
+        let s = "café";
+        assert_eq!(s.len(), 5);
+        // Truncating at 4 would split é — should back up to 3
+        let t = safe_truncate(s, 4);
+        assert_eq!(t, "caf");
+        // Truncating at 5 keeps the full string
+        assert_eq!(safe_truncate(s, 5), "café");
     }
 }
 
