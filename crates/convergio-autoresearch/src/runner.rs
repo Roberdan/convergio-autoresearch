@@ -12,6 +12,7 @@ use convergio_db::pool::ConnPool;
 use crate::metrics::collect_rust_metrics;
 use crate::types::{AutoresearchConfig, ExperimentOutcome, ExperimentStatus};
 use std::path::Path;
+use std::time::Duration;
 
 /// Run one nightly autoresearch cycle.
 pub async fn run_cycle(pool: &ConnPool, config: &AutoresearchConfig) {
@@ -28,6 +29,48 @@ pub async fn run_cycle(pool: &ConnPool, config: &AutoresearchConfig) {
         }
     }
     tracing::info!("autoresearch cycle complete");
+}
+
+/// Maximum allowed length for stored proposals (bytes).
+const MAX_PROPOSAL_LEN: usize = 5000;
+
+/// Allowed URL schemes for the daemon endpoint.
+const ALLOWED_SCHEMES: &[&str] = &["http://", "https://"];
+
+/// Validate that the daemon URL uses an allowed scheme and points to localhost.
+pub fn validate_daemon_url(url: &str) -> Result<(), String> {
+    if !ALLOWED_SCHEMES.iter().any(|s| url.starts_with(s)) {
+        return Err(format!("daemon_url must use http or https scheme: {url}"));
+    }
+    let host_part = url
+        .split("://")
+        .nth(1)
+        .unwrap_or("")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    let allowed_hosts = ["localhost", "127.0.0.1", "::1", "[::1]"];
+    if !allowed_hosts.contains(&host_part) {
+        return Err(format!(
+            "daemon_url must target localhost, got: {host_part}"
+        ));
+    }
+    Ok(())
+}
+
+/// Safely truncate a string to at most `max_bytes`, respecting UTF-8 boundaries.
+pub fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 async fn run_single_experiment(
@@ -95,13 +138,18 @@ fn pick_target(repo_root: &str) -> Result<String, String> {
 }
 
 async fn ask_for_proposal(config: &AutoresearchConfig, target: &str) -> Result<String, String> {
+    validate_daemon_url(&config.daemon_url)?;
     let content = std::fs::read_to_string(target).map_err(|e| e.to_string())?;
     let prompt = format!(
         "Suggest ONE small optimization for this Rust file. \
          Focus on performance, not style. Reply with ONLY the optimized code.\n\n\
          File: {target}\n```rust\n{content}\n```"
     );
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
     let resp: serde_json::Value = client
         .post(format!("{}/api/inference/complete", config.daemon_url))
         .json(&serde_json::json!({
@@ -159,7 +207,7 @@ fn update_proposal(pool: &ConnPool, id: i64, proposal: &str) {
     if let Ok(conn) = pool.get() {
         let _ = conn.execute(
             "UPDATE autoresearch_experiments SET proposal = ?1 WHERE id = ?2",
-            rusqlite::params![&proposal[..proposal.len().min(5000)], id],
+            rusqlite::params![safe_truncate(proposal, MAX_PROPOSAL_LEN), id],
         );
     }
 }
