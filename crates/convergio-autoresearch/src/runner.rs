@@ -196,19 +196,23 @@ fn create_experiment(pool: &ConnPool, target: &str, desc: &str) -> Result<i64, S
 
 fn update_status(pool: &ConnPool, id: i64, status: ExperimentStatus) {
     if let Ok(conn) = pool.get() {
-        let _ = conn.execute(
+        if let Err(e) = conn.execute(
             "UPDATE autoresearch_experiments SET status = ?1 WHERE id = ?2",
             rusqlite::params![status.to_string(), id],
-        );
+        ) {
+            tracing::warn!(error = %e, id, "failed to update experiment status");
+        }
     }
 }
 
 fn update_proposal(pool: &ConnPool, id: i64, proposal: &str) {
     if let Ok(conn) = pool.get() {
-        let _ = conn.execute(
+        if let Err(e) = conn.execute(
             "UPDATE autoresearch_experiments SET proposal = ?1 WHERE id = ?2",
             rusqlite::params![safe_truncate(proposal, MAX_PROPOSAL_LEN), id],
-        );
+        ) {
+            tracing::warn!(error = %e, id, "failed to update experiment proposal");
+        }
     }
 }
 
@@ -220,7 +224,7 @@ fn complete_experiment(
     after: Option<&crate::types::ProjectMetrics>,
 ) {
     if let Ok(conn) = pool.get() {
-        let _ = conn.execute(
+        if let Err(e) = conn.execute(
             "UPDATE autoresearch_experiments SET status = 'completed', outcome = ?1, \
              baseline_test_secs = ?2, experiment_test_secs = ?3, \
              completed_at = datetime('now') WHERE id = ?4",
@@ -230,13 +234,15 @@ fn complete_experiment(
                 after.map(|a| a.test_duration_secs),
                 id
             ],
-        );
+        ) {
+            tracing::warn!(error = %e, id, "failed to complete experiment");
+        }
     }
 }
 
 fn log_metrics(pool: &ConnPool, m: &crate::types::ProjectMetrics) {
     if let Ok(conn) = pool.get() {
-        let _ = conn.execute(
+        if let Err(e) = conn.execute(
             "INSERT INTO autoresearch_metrics \
              (test_count, test_duration_secs, binary_size_bytes, \
               total_rust_lines, crate_count) \
@@ -248,6 +254,8 @@ fn log_metrics(pool: &ConnPool, m: &crate::types::ProjectMetrics) {
                 m.total_rust_lines,
                 m.crate_count,
             ],
-        );
+        ) {
+            tracing::warn!(error = %e, "failed to log metrics");
+        }
     }
 }
