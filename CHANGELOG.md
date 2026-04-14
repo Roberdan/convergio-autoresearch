@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/Roberdan/convergio-autoresearch/compare/v0.1.3...v0.1.4) (2026-04-14)
+
+
+### Bug Fixes
+
+* pass CARGO_REGISTRY_TOKEN to release workflow ([191fb76](https://github.com/Roberdan/convergio-autoresearch/commit/191fb7657b60764fa6ef057a1462792713ebc502))
+
 ## [0.1.3](https://github.com/Roberdan/convergio-autoresearch/compare/v0.1.2...v0.1.3) (2026-04-13)
 
 
