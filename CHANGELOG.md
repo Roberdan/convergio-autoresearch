@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/Roberdan/convergio-autoresearch/compare/v0.1.4...v0.1.5) (2026-04-18)
+
+
+### Bug Fixes
+
+* replace silent error swallowing with tracing::warn in DB helpers ([54d15de](https://github.com/Roberdan/convergio-autoresearch/commit/54d15ded44e28cf8499b336a024263c3f85a7515))
+* security and quality audit pass 2 ([28d7ff9](https://github.com/Roberdan/convergio-autoresearch/commit/28d7ff9cc5a275d21b4ef248c27f16a746c9b092))
+
 ## [0.1.4](https://github.com/Roberdan/convergio-autoresearch/compare/v0.1.3...v0.1.4) (2026-04-14)
 
 
