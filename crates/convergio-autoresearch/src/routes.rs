@@ -122,7 +122,16 @@ async fn handle_experiments(
                 "completed_at": r.get::<_, Option<String>>(9)?,
             }))
         })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .map(|rows| {
+            rows.filter_map(|r| match r {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to read experiment row");
+                    None
+                }
+            })
+            .collect()
+        })
         .unwrap_or_default();
     Json(json!({"experiments": rows}))
 }
@@ -157,7 +166,16 @@ async fn handle_metrics(State(s): State<Arc<AutoresearchState>>) -> Json<Value> 
                 "collected_at": r.get::<_, String>(5)?,
             }))
         })
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .map(|rows| {
+            rows.filter_map(|r| match r {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to read metrics row");
+                    None
+                }
+            })
+            .collect()
+        })
         .unwrap_or_default();
     Json(json!({"metrics": rows}))
 }
